@@ -2,7 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Input;
-using System.Windows.Threading;
+using System.Windows.Media.Imaging;
 using Windows.Graphics.Capture;
 using WinRT.Interop;
 
@@ -11,17 +11,14 @@ namespace LiveScreenshot;
 // Exposes source selection, capture controls, and capture status.
 public partial class MainWindow : Window
 {
-    private readonly DispatcherTimer statusTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private CaptureRun? run;
     private bool picking;
     private bool closing;
 
-    // Initializes the capture controls and status timer.
+    // Initializes the capture controls.
     public MainWindow()
     {
         InitializeComponent();
-        OutputPath.Text = SnapshotFile.Path;
-        statusTimer.Tick += RefreshStatus;
     }
 
     // Opens the system picker owned by the WPF window.
@@ -32,9 +29,7 @@ public partial class MainWindow : Window
         ErrorText.Text = "";
         try
         {
-            GraphicsCapturePicker picker = new();
-            InitializeWithWindow.Initialize(picker, new WindowInteropHelper(this).Handle);
-            GraphicsCaptureItem? item = await picker.PickSingleItemAsync();
+            GraphicsCaptureItem? item = await PickOtherSourceAsync();
             if (item is not null && !closing)
             {
                 Start(item);
@@ -51,6 +46,26 @@ public partial class MainWindow : Window
         }
     }
 
+    // Excludes this window while the native picker is open.
+    private async Task<GraphicsCaptureItem?> PickOtherSourceAsync()
+    {
+        nint window = new WindowInteropHelper(this).Handle;
+        CaptureInterop.SetCaptureExclusion(window, true);
+        try
+        {
+            GraphicsCapturePicker picker = new();
+            InitializeWithWindow.Initialize(picker, window);
+            return await picker.PickSingleItemAsync();
+        }
+        finally
+        {
+            if (!closing)
+            {
+                CaptureInterop.SetCaptureExclusion(window, false);
+            }
+        }
+    }
+
     // Starts a session and binds its lifecycle callbacks to the UI thread.
     private void Start(GraphicsCaptureItem item)
     {
@@ -59,13 +74,11 @@ public partial class MainWindow : Window
         candidate = new CaptureRun(item,
             () => Dispatcher.BeginInvoke(() => EndIfCurrent(candidate!, null)),
             error => Dispatcher.BeginInvoke(() => EndIfCurrent(candidate!, error)),
-            error => Dispatcher.BeginInvoke(() => ShowOutputStatus(candidate!, error)));
+            (image, error) => Dispatcher.BeginInvoke(() => ShowOutputStatus(candidate!, image, error)));
         run = candidate;
         try
         {
             candidate.Start();
-            Status.Text = $"Starting capture · {candidate.Name}";
-            statusTimer.Start();
         }
         catch (Exception error)
         {
@@ -84,12 +97,16 @@ public partial class MainWindow : Window
         }
     }
 
-    // Displays the latest write result while the originating session is active.
-    private void ShowOutputStatus(CaptureRun candidate, Exception? error)
+    // Displays the latest published image or reports a write error.
+    private void ShowOutputStatus(CaptureRun candidate, BitmapSource? image, Exception? error)
     {
         if (ReferenceEquals(run, candidate))
         {
             ErrorText.Text = error?.Message ?? "";
+            if (image is not null)
+            {
+                CapturePreview.Source = image;
+            }
         }
     }
 
@@ -104,7 +121,7 @@ public partial class MainWindow : Window
     {
         CaptureRun? previous = run;
         run = null;
-        statusTimer.Stop();
+        CapturePreview.Source = null;
         ErrorText.Text = error?.Message ?? "";
         if (previous is not null)
         {
@@ -125,26 +142,16 @@ public partial class MainWindow : Window
             }
         }
 
-        Status.Text = "Idle";
         UpdateControls();
     }
 
-    // Displays whether the selected source is delivering frames.
-    private void RefreshStatus(object? sender, EventArgs args)
-    {
-        if (run is not null)
-        {
-            Status.Text = run.ReceivingFrames
-                ? $"Capturing · {run.Name}"
-                : $"Waiting for a frame · {run.Name}";
-        }
-    }
-
-    // Enables source selection only while idle.
+    // Updates the controls and preview label for the current capture state.
     private void UpdateControls()
     {
         WindowButton.IsEnabled = !picking && run is null;
-        StopButton.IsEnabled = run is not null;
+        WindowButton.Visibility = run is null ? Visibility.Visible : Visibility.Collapsed;
+        StopButton.Visibility = run is null ? Visibility.Collapsed : Visibility.Visible;
+        Status.Text = run is null ? "Stopped" : "Capturing...";
     }
 
     // Copies the absolute path for use by a local assistant.

@@ -21,7 +21,7 @@ internal sealed class CaptureRun : IDisposable
     private readonly GraphicsCaptureItem item;
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private readonly Action<Exception> failed;
-    private readonly Action<Exception?> outputStatus;
+    private readonly Action<BitmapSource?, Exception?> outputStatus;
     private readonly Action closed;
     private ID3D11Device? device;
     private ID3D11DeviceContext? context;
@@ -31,26 +31,16 @@ internal sealed class CaptureRun : IDisposable
     private ID3D11Texture2D? staging;
     private SizeInt32 size;
     private TimeSpan nextWrite;
-    private long lastFrame = -1;
     private bool stopping;
 
     // Records the selected item and its lifecycle callbacks.
-    internal CaptureRun(GraphicsCaptureItem item, Action closed, Action<Exception> failed, Action<Exception?> outputStatus)
+    internal CaptureRun(GraphicsCaptureItem item, Action closed, Action<Exception> failed,
+        Action<BitmapSource?, Exception?> outputStatus)
     {
         this.item = item;
         this.closed = closed;
         this.failed = failed;
         this.outputStatus = outputStatus;
-    }
-
-    internal string Name => item.DisplayName;
-    internal bool ReceivingFrames
-    {
-        get
-        {
-            long timestamp = Interlocked.Read(ref lastFrame);
-            return timestamp >= 0 && clock.ElapsedMilliseconds - timestamp < Interval.TotalMilliseconds;
-        }
     }
 
     // Starts frame delivery with the native capture border enabled.
@@ -126,7 +116,6 @@ internal sealed class CaptureRun : IDisposable
 
             if (updatedSize.Width == size.Width && updatedSize.Height == size.Height)
             {
-                Interlocked.Exchange(ref lastFrame, clock.ElapsedMilliseconds);
                 TimeSpan now = clock.Elapsed;
                 if (now >= nextWrite)
                 {
@@ -150,11 +139,12 @@ internal sealed class CaptureRun : IDisposable
         try
         {
             SnapshotFile.Publish(image);
-            outputStatus(null);
+            image.Freeze();
+            outputStatus(image, null);
         }
         catch (Exception error) when (error is System.IO.IOException or UnauthorizedAccessException)
         {
-            outputStatus(error);
+            outputStatus(null, error);
         }
     }
 
