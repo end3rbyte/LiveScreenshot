@@ -3,18 +3,18 @@ name: Publish LiveScreenshot 1.0.0 prerelease
 on:
   workflow_dispatch:
   push:
-    tags:
-      - v1.0.0
+    branches:
+      - main
 
 permissions:
   contents: read
 
-concurrency:
-  group: livescreenshot-prerelease-1.0.0
-
 jobs:
   publish:
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-2025
+    concurrency:
+      group: livescreenshot-prerelease-1.0.0
     permissions:
       contents: write
     defaults:
@@ -26,7 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: refs/tags/${{ env.RELEASE_TAG }}
           persist-credentials: false
 
       - uses: actions/setup-dotnet@v5
@@ -39,13 +38,39 @@ jobs:
             --runtime win-x64 --self-contained true \
             -p:Version="${RELEASE_TAG#v}" --output "$RUNNER_TEMP/publish"
           test -f "$RUNNER_TEMP/publish/LiveScreenshot.exe"
-          "$WINDIR/System32/tar.exe" -a -cf "$RUNNER_TEMP/LiveScreenshot-$RELEASE_TAG-win-x64.zip" \
+          "$WINDIR/System32/tar.exe" -a -cf "$RUNNER_TEMP/LiveScreenshot-$RELEASE_TAG-win-x64-$GITHUB_SHA.zip" \
             -C "$RUNNER_TEMP/publish" .
 
       - name: Publish GitHub prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$RELEASE_TAG" "$RUNNER_TEMP/LiveScreenshot-$RELEASE_TAG-win-x64.zip" \
-            --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false \
-            --title "LiveScreenshot ${RELEASE_TAG#v}" --generate-notes
+          # Skip publication if a newer commit has already reached main.
+          main_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$main_sha" != "$GITHUB_SHA" ]]; then
+            echo "Skipping publication because main has advanced to $main_sha."
+            exit 0
+          fi
+
+          asset="LiveScreenshot-$RELEASE_TAG-win-x64-$GITHUB_SHA.zip"
+          prerelease=$(gh release view "$RELEASE_TAG" --json isPrerelease,isDraft --jq '.isPrerelease and (.isDraft | not)')
+          if [[ "$prerelease" != true ]]; then
+            echo "Expected a published prerelease for $RELEASE_TAG." >&2
+            exit 1
+          fi
+
+          assets=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | [.name, .state] | @tsv')
+          if ! grep -Fxq "$asset"$'\t'uploaded <<< "$assets"; then
+            gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/$asset" --clobber
+          fi
+
+          gh release edit "$RELEASE_TAG" --prerelease --latest=false \
+            --notes "Windows x64 build from [\`$GITHUB_SHA\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)."
+
+          # Remove older Windows packages only after the new ZIP is available.
+          package_prefix="LiveScreenshot-$RELEASE_TAG-win-x64"
+          while IFS=$'\t' read -r previous_asset state; do
+            if [[ "$previous_asset" != "$asset" && ( "$previous_asset" == "$package_prefix.zip" || "$previous_asset" == "$package_prefix-"*.zip ) ]]; then
+              gh release delete-asset "$RELEASE_TAG" "$previous_asset" --yes
+            fi
+          done <<< "$assets"
