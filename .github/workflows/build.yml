@@ -22,6 +22,7 @@ jobs:
         shell: bash
     env:
       RELEASE_TAG: v1.0.0
+      RELEASE_ASSET: LiveScreenshot-v1.0.0-win-x64.exe
 
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +37,7 @@ jobs:
         shell: pwsh
         run: |
           $publishPath = Join-Path $env:RUNNER_TEMP 'publish'
-          $assetPath = Join-Path $env:RUNNER_TEMP "LiveScreenshot-$env:RELEASE_TAG-win-x64-$env:GITHUB_SHA.exe"
+          $assetPath = Join-Path $env:RUNNER_TEMP $env:RELEASE_ASSET
           $version = $env:RELEASE_TAG.Substring(1)
           dotnet publish LiveScreenshot.csproj --configuration Release `
             --runtime win-x64 --self-contained false -p:PublishSingleFile=true `
@@ -61,17 +62,15 @@ jobs:
             exit 0
           fi
 
-          asset="LiveScreenshot-$RELEASE_TAG-win-x64-$GITHUB_SHA.exe"
+          asset="$RELEASE_ASSET"
           prerelease=$(gh release view "$RELEASE_TAG" --json isPrerelease,isDraft --jq '.isPrerelease and (.isDraft | not)')
           if [[ "$prerelease" != true ]]; then
             echo "Expected a published prerelease for $RELEASE_TAG." >&2
             exit 1
           fi
 
-          assets=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | [.name, .state] | @tsv')
-          if ! grep -Fxq "$asset"$'\t'uploaded <<< "$assets"; then
-            gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/$asset" --clobber
-          fi
+          assets=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
+          gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/$asset" --clobber
 
           download_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$asset"
           commit_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
@@ -80,7 +79,7 @@ jobs:
 
           # Remove older Windows builds only after the new executable is available.
           package_prefix="LiveScreenshot-$RELEASE_TAG-win-x64"
-          while IFS=$'\t' read -r previous_asset state; do
+          while IFS= read -r previous_asset; do
             if [[ "$previous_asset" != "$asset" && ( "$previous_asset" == "$package_prefix.zip" || "$previous_asset" == "$package_prefix-"*.zip || "$previous_asset" == "$package_prefix-"*.exe ) ]]; then
               gh release delete-asset "$RELEASE_TAG" "$previous_asset" --yes
             fi
