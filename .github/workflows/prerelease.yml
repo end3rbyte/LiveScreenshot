@@ -1,6 +1,7 @@
 name: Publish LiveScreenshot 1.0.0 prerelease
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - v1.0.0
@@ -20,11 +21,12 @@ jobs:
       run:
         shell: bash
     env:
-      ARCHIVE: LiveScreenshot-${{ github.ref_name }}-win-x64.zip
+      RELEASE_TAG: v1.0.0
 
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           persist-credentials: false
 
       - uses: actions/setup-dotnet@v5
@@ -35,14 +37,15 @@ jobs:
         run: |
           dotnet publish LiveScreenshot.csproj --configuration Release \
             --runtime win-x64 --self-contained true \
-            -p:Version="${GITHUB_REF_NAME#v}" --output "$RUNNER_TEMP/publish"
+            -p:Version="${RELEASE_TAG#v}" --output "$RUNNER_TEMP/publish"
           test -f "$RUNNER_TEMP/publish/LiveScreenshot.exe"
-          "$WINDIR/System32/tar.exe" -a -cf "$RUNNER_TEMP/$ARCHIVE" -C "$RUNNER_TEMP/publish" .
+          "$WINDIR/System32/tar.exe" -a -cf "$RUNNER_TEMP/LiveScreenshot-$RELEASE_TAG-win-x64.zip" \
+            -C "$RUNNER_TEMP/publish" .
 
       - name: Publish GitHub prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP/$ARCHIVE" \
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP/LiveScreenshot-$RELEASE_TAG-win-x64.zip" \
             --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false \
-            --title "LiveScreenshot ${GITHUB_REF_NAME#v}" --generate-notes
+            --title "LiveScreenshot ${RELEASE_TAG#v}" --generate-notes
