@@ -33,13 +33,27 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Build and package Windows x64
+        shell: pwsh
         run: |
-          dotnet publish LiveScreenshot.csproj --configuration Release \
-            --runtime win-x64 --self-contained true \
-            -p:Version="${RELEASE_TAG#v}" --output "$RUNNER_TEMP/publish"
-          test -f "$RUNNER_TEMP/publish/LiveScreenshot.exe"
-          "$WINDIR/System32/tar.exe" -a -cf "$RUNNER_TEMP/LiveScreenshot-$RELEASE_TAG-win-x64-$GITHUB_SHA.zip" \
-            -C "$RUNNER_TEMP/publish" .
+          $publishPath = Join-Path $env:RUNNER_TEMP 'publish'
+          $zipPath = Join-Path $env:RUNNER_TEMP "LiveScreenshot-$env:RELEASE_TAG-win-x64-$env:GITHUB_SHA.zip"
+          $version = $env:RELEASE_TAG.Substring(1)
+          dotnet publish LiveScreenshot.csproj --configuration Release `
+            --runtime win-x64 --self-contained true "-p:Version=$version" --output $publishPath
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          [IO.Compression.ZipFile]::CreateFromDirectory($publishPath, $zipPath)
+          $archive = [IO.Compression.ZipFile]::OpenRead($zipPath)
+          try {
+            foreach ($name in 'LiveScreenshot.exe', 'LiveScreenshot.dll', 'coreclr.dll') {
+              $entry = $archive.GetEntry($name)
+              if ($null -eq $entry -or $entry.Length -eq 0) {
+                throw "Missing or empty ZIP entry: $name"
+              }
+            }
+          } finally {
+            $archive.Dispose()
+          }
 
       - name: Publish GitHub prerelease
         env:
@@ -64,8 +78,10 @@ jobs:
             gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/$asset" --clobber
           fi
 
-          gh release edit "$RELEASE_TAG" --prerelease --latest=false \
-            --notes "Windows x64 build from [\`$GITHUB_SHA\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)."
+          download_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$asset"
+          commit_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+          notes=$(printf '[Download LiveScreenshot for Windows x64](%s)\n\nBuilt from [`%s`](%s).\n' "$download_url" "$GITHUB_SHA" "$commit_url")
+          gh release edit "$RELEASE_TAG" --prerelease --latest=false --notes "$notes"
 
           # Remove older Windows packages only after the new ZIP is available.
           package_prefix="LiveScreenshot-$RELEASE_TAG-win-x64"
