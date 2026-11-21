@@ -39,7 +39,7 @@ jobs:
           $zipPath = Join-Path $env:RUNNER_TEMP "LiveScreenshot-$env:RELEASE_TAG-win-x64-$env:GITHUB_SHA.zip"
           $version = $env:RELEASE_TAG.Substring(1)
           dotnet publish LiveScreenshot.csproj --configuration Release `
-            --runtime win-x64 --self-contained true -p:PublishSingleFile=true `
+            --runtime win-x64 --self-contained false -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None `
             "-p:Version=$version" --output $publishPath
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -80,7 +80,7 @@ jobs:
 
           download_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$asset"
           commit_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
-          notes=$(printf '[Download LiveScreenshot for Windows x64](%s)\n\nBuilt from [`%s`](%s).\n' "$download_url" "$GITHUB_SHA" "$commit_url")
+          notes=$(printf '[Download LiveScreenshot for Windows x64](%s)\n\nRequires the [.NET 10 Desktop Runtime for Windows x64](https://dotnet.microsoft.com/download/dotnet/10.0).\n\nBuilt from [`%s`](%s).\n' "$download_url" "$GITHUB_SHA" "$commit_url")
           gh release edit "$RELEASE_TAG" --prerelease --latest=false --notes "$notes"
 
           # Remove older Windows packages only after the new ZIP is available.
