@@ -1,0 +1,48 @@
+name: Publish LiveScreenshot 1.0.0 prerelease
+
+on:
+  push:
+    tags:
+      - v1.0.0
+
+permissions:
+  contents: read
+
+concurrency:
+  group: livescreenshot-prerelease-1.0.0
+
+jobs:
+  publish:
+    runs-on: windows-2025
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      ARCHIVE: LiveScreenshot-${{ github.ref_name }}-win-x64.zip
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build and package Windows x64
+        run: |
+          dotnet publish LiveScreenshot.csproj --configuration Release \
+            --runtime win-x64 --self-contained true \
+            -p:Version="${GITHUB_REF_NAME#v}" --output "$RUNNER_TEMP/publish"
+          test -f "$RUNNER_TEMP/publish/LiveScreenshot.exe"
+          "$WINDIR/System32/tar.exe" -a -cf "$RUNNER_TEMP/$ARCHIVE" -C "$RUNNER_TEMP/publish" .
+
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP/$ARCHIVE" \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false \
+            --title "LiveScreenshot ${GITHUB_REF_NAME#v}" --generate-notes
