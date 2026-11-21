@@ -36,7 +36,7 @@ jobs:
         shell: pwsh
         run: |
           $publishPath = Join-Path $env:RUNNER_TEMP 'publish'
-          $zipPath = Join-Path $env:RUNNER_TEMP "LiveScreenshot-$env:RELEASE_TAG-win-x64-$env:GITHUB_SHA.zip"
+          $assetPath = Join-Path $env:RUNNER_TEMP "LiveScreenshot-$env:RELEASE_TAG-win-x64-$env:GITHUB_SHA.exe"
           $version = $env:RELEASE_TAG.Substring(1)
           dotnet publish LiveScreenshot.csproj --configuration Release `
             --runtime win-x64 --self-contained false -p:PublishSingleFile=true `
@@ -44,16 +44,11 @@ jobs:
             "-p:Version=$version" --output $publishPath
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          [IO.Compression.ZipFile]::CreateFromDirectory($publishPath, $zipPath)
-          $archive = [IO.Compression.ZipFile]::OpenRead($zipPath)
-          try {
-            $entry = $archive.GetEntry('LiveScreenshot.exe')
-            if ($archive.Entries.Count -ne 1 -or $null -eq $entry -or $entry.Length -eq 0) {
-              throw 'The ZIP must contain exactly one non-empty file named LiveScreenshot.exe.'
-            }
-          } finally {
-            $archive.Dispose()
+          $outputs = @(Get-ChildItem -LiteralPath $publishPath -Force)
+          if ($outputs.Count -ne 1 -or $outputs[0].PSIsContainer -or $outputs[0].Name -cne 'LiveScreenshot.exe' -or $outputs[0].Length -eq 0) {
+            throw 'Publish must produce exactly one non-empty file named LiveScreenshot.exe.'
           }
+          Move-Item -LiteralPath $outputs[0].FullName -Destination $assetPath
 
       - name: Publish GitHub prerelease
         env:
@@ -66,7 +61,7 @@ jobs:
             exit 0
           fi
 
-          asset="LiveScreenshot-$RELEASE_TAG-win-x64-$GITHUB_SHA.zip"
+          asset="LiveScreenshot-$RELEASE_TAG-win-x64-$GITHUB_SHA.exe"
           prerelease=$(gh release view "$RELEASE_TAG" --json isPrerelease,isDraft --jq '.isPrerelease and (.isDraft | not)')
           if [[ "$prerelease" != true ]]; then
             echo "Expected a published prerelease for $RELEASE_TAG." >&2
@@ -83,10 +78,10 @@ jobs:
           notes=$(printf '[Download LiveScreenshot for Windows x64](%s)\n\nRequires the [.NET 10 Desktop Runtime for Windows x64](https://dotnet.microsoft.com/download/dotnet/10.0).\n\nBuilt from [`%s`](%s).\n' "$download_url" "$GITHUB_SHA" "$commit_url")
           gh release edit "$RELEASE_TAG" --prerelease --latest=false --notes "$notes"
 
-          # Remove older Windows packages only after the new ZIP is available.
+          # Remove older Windows builds only after the new executable is available.
           package_prefix="LiveScreenshot-$RELEASE_TAG-win-x64"
           while IFS=$'\t' read -r previous_asset state; do
-            if [[ "$previous_asset" != "$asset" && ( "$previous_asset" == "$package_prefix.zip" || "$previous_asset" == "$package_prefix-"*.zip ) ]]; then
+            if [[ "$previous_asset" != "$asset" && ( "$previous_asset" == "$package_prefix.zip" || "$previous_asset" == "$package_prefix-"*.zip || "$previous_asset" == "$package_prefix-"*.exe ) ]]; then
               gh release delete-asset "$RELEASE_TAG" "$previous_asset" --yes
             fi
           done <<< "$assets"
