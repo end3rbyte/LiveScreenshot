@@ -8,8 +8,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>LiveScreenshot.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Resource Include="LiveScreenshot.ico" />
+    <Resource Include="LiveScreenshot.png" />
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
   </ItemGroup>
 </Project>
