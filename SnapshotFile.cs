@@ -3,14 +3,14 @@ using System.Windows.Media.Imaging;
 
 namespace LiveScreenshot;
 
-// Publishes and removes the fixed PNG and its temporary file.
+// Writes and removes the fixed PNG.
 internal static class SnapshotFile
 {
-    internal static string Path { get; } = GetPath();
-    private static string TemporaryPath => Path + ".tmp";
+    internal static string DirectoryPath { get; } = GetDirectoryPath();
+    internal static string Path { get; } = System.IO.Path.Combine(DirectoryPath, "latest.png");
 
     // Resolves the output path against the current Windows user profile.
-    private static string GetPath()
+    private static string GetDirectoryPath()
     {
         string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (string.IsNullOrEmpty(profile))
@@ -18,33 +18,25 @@ internal static class SnapshotFile
             throw new InvalidOperationException("The Windows user profile folder could not be found.");
         }
 
-        return System.IO.Path.Combine(profile, ".livescreenshot", "latest.png");
+        return System.IO.Path.Combine(profile, ".livescreenshot");
     }
 
-    // Publishes a fully encoded image by replacing the file in the same directory.
+    // Encodes the image before overwriting the final PNG directly.
     internal static void Publish(BitmapSource image)
     {
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
-        using (FileStream output = new(TemporaryPath, FileMode.Create, FileAccess.Write, FileShare.None))
-        {
-            PngBitmapEncoder encoder = new();
-            encoder.Frames.Add(BitmapFrame.Create(image));
-            encoder.Save(output);
-        }
-
-        File.Move(TemporaryPath, Path, true);
+        Directory.CreateDirectory(DirectoryPath);
+        using MemoryStream encoded = new();
+        PngBitmapEncoder encoder = new();
+        encoder.Frames.Add(BitmapFrame.Create(image));
+        encoder.Save(encoded);
+        encoded.Position = 0;
+        using FileStream output = new(Path, FileMode.Create, FileAccess.Write, FileShare.None);
+        encoded.CopyTo(output);
     }
 
-    // Removes both the published image and any incomplete temporary output.
+    // Removes the published image.
     internal static void Remove()
     {
-        try
-        {
-            File.Delete(Path);
-        }
-        finally
-        {
-            File.Delete(TemporaryPath);
-        }
+        File.Delete(Path);
     }
 }

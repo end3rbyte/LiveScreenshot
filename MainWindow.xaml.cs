@@ -1,10 +1,10 @@
 using System.ComponentModel;
 using System.Windows;
-using System.Windows.Interop;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using Windows.Graphics.Capture;
-using WinRT.Interop;
 
 namespace LiveScreenshot;
 
@@ -12,8 +12,8 @@ namespace LiveScreenshot;
 public partial class MainWindow : Window
 {
     private CaptureRun? run;
-    private bool picking;
-    private bool closing;
+    private CaptureWindow? captureWindow;
+    private PingOverlay? ping;
 
     // Initializes the capture controls.
     public MainWindow()
@@ -21,48 +21,95 @@ public partial class MainWindow : Window
         InitializeComponent();
     }
 
-    // Opens the system picker owned by the WPF window.
-    private async void PickWindow(object sender, RoutedEventArgs args)
+    // Opens a window list that preserves the handle of the chosen capture source.
+    private void OpenCaptureWindows(object sender, RoutedEventArgs args)
     {
-        picking = true;
-        UpdateControls();
         ErrorText.Text = "";
         try
         {
-            GraphicsCaptureItem? item = await PickOtherSourceAsync();
-            if (item is not null && !closing)
+            ContextMenu menu = new() { PlacementTarget = CaptureWindowButton, Placement = PlacementMode.Bottom };
+            foreach (CaptureWindow window in CaptureWindow.List())
             {
-                Start(item);
+                MenuItem item = new() { Header = window.Title, ToolTip = $"PID {window.ProcessId}, HWND 0x{window.Handle:X}" };
+                item.Click += (_, _) => StartWindowCapture(window);
+                menu.Items.Add(item);
             }
+
+            if (menu.Items.Count == 0)
+            {
+                throw new InvalidOperationException("No visible windows are available to capture.");
+            }
+
+            menu.IsOpen = true;
         }
         catch (Exception error)
         {
             ErrorText.Text = error.Message;
         }
-        finally
+    }
+
+    // Starts a capture tied to the chosen native window.
+    private void StartWindowCapture(CaptureWindow window)
+    {
+        try
         {
-            picking = false;
-            UpdateControls();
+            GraphicsCaptureItem item = window.CreateItem();
+            captureWindow = window;
+            Start(item);
+        }
+        catch (Exception error)
+        {
+            EndCapture(error);
         }
     }
 
-    // Excludes this window while the native picker is open.
-    private async Task<GraphicsCaptureItem?> PickOtherSourceAsync()
+    // Maps a click on the captured image to a desktop pixel and pings it.
+    private void PingPreview(object sender, MouseButtonEventArgs args)
     {
-        nint window = new WindowInteropHelper(this).Handle;
-        CaptureInterop.SetCaptureExclusion(window, true);
+        if (run is null || CapturePreview.Source is not BitmapSource image)
+        {
+            return;
+        }
+
+        args.Handled = true;
         try
         {
-            GraphicsCapturePicker picker = new();
-            InitializeWithWindow.Initialize(picker, window);
-            return await picker.PickSingleItemAsync();
+            ShowPing(image, args.GetPosition(CapturePreview), CapturePreview.RenderSize);
         }
-        finally
+        catch (Exception error)
         {
-            if (!closing)
-            {
-                CaptureInterop.SetCaptureExclusion(window, false);
-            }
+            ErrorText.Text = error.Message;
+        }
+    }
+
+    // Pings a zero-based pixel in the current published screenshot.
+    internal void PingCapturedPixel(int x, int y)
+    {
+        if (run is null || CapturePreview.Source is not BitmapSource image)
+        {
+            throw new InvalidOperationException("No captured image is available.");
+        }
+
+        ShowPing(image, new Point(x, y), new Size(image.PixelWidth, image.PixelHeight));
+    }
+
+    // Shows the same overlay for preview clicks and local commands.
+    private void ShowPing(BitmapSource image, Point position, Size coordinateSpace)
+    {
+        CaptureWindow window = captureWindow ?? throw new InvalidOperationException("No capture window is associated with this image.");
+        Point pixel = window.GetScreenPoint(image, position, coordinateSpace);
+        ping?.Close();
+        PingOverlay overlay = new();
+        ping = overlay;
+        overlay.Closed += (_, _) => ping = null;
+        try
+        {
+            overlay.ShowAt(pixel);
+        }
+        catch
+        {
+            overlay.Close();
+            throw;
         }
     }
 
@@ -121,6 +168,8 @@ public partial class MainWindow : Window
     {
         CaptureRun? previous = run;
         run = null;
+        captureWindow = null;
+        ping?.Close();
         CapturePreview.Source = null;
         ErrorText.Text = error?.Message ?? "";
         if (previous is not null)
@@ -148,8 +197,7 @@ public partial class MainWindow : Window
     // Updates the controls and preview label for the current capture state.
     private void UpdateControls()
     {
-        WindowButton.IsEnabled = !picking && run is null;
-        WindowButton.Visibility = run is null ? Visibility.Visible : Visibility.Collapsed;
+        CaptureWindowButton.Visibility = run is null ? Visibility.Visible : Visibility.Collapsed;
         StopButton.Visibility = run is null ? Visibility.Collapsed : Visibility.Visible;
         Status.Text = run is null ? "Stopped" : "Capturing...";
     }
@@ -199,7 +247,6 @@ public partial class MainWindow : Window
             return;
         }
 
-        closing = true;
         if (run is not null)
         {
             EndCapture(null);

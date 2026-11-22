@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
@@ -10,23 +9,6 @@ namespace LiveScreenshot;
 // Bridges the Windows capture APIs and Direct3D 11.
 internal static partial class CaptureInterop
 {
-    private const uint WdaNone = 0;
-    private const uint WdaExcludeFromCapture = 0x11;
-
-    // Sets the capture visibility of a window owned by this process.
-    [LibraryImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool SetWindowDisplayAffinity(nint window, uint affinity);
-
-    // Applies the native capture exclusion or restores normal capture visibility.
-    internal static void SetCaptureExclusion(nint window, bool excluded)
-    {
-        if (!SetWindowDisplayAffinity(window, excluded ? WdaExcludeFromCapture : WdaNone))
-        {
-            throw new Win32Exception(Marshal.GetLastPInvokeError());
-        }
-    }
-
     [LibraryImport("d3d11.dll")]
     private static partial int CreateDirect3D11DeviceFromDXGIDevice(nint device, out nint result);
 
