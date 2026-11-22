@@ -63,25 +63,6 @@ public partial class MainWindow : Window
         }
     }
 
-    // Maps a click on the captured image to a desktop pixel and pings it.
-    private void PingPreview(object sender, MouseButtonEventArgs args)
-    {
-        if (run is null || CapturePreview.Source is not BitmapSource image)
-        {
-            return;
-        }
-
-        args.Handled = true;
-        try
-        {
-            ShowPing(image, args.GetPosition(CapturePreview), CapturePreview.RenderSize);
-        }
-        catch (Exception error)
-        {
-            ErrorText.Text = error.Message;
-        }
-    }
-
     // Pings a zero-based pixel in the current published screenshot.
     internal void PingCapturedPixel(int x, int y)
     {
@@ -93,7 +74,7 @@ public partial class MainWindow : Window
         ShowPing(image, new Point(x, y), new Size(image.PixelWidth, image.PixelHeight));
     }
 
-    // Shows the same overlay for preview clicks and local commands.
+    // Shows the overlay for a local ping command.
     private void ShowPing(BitmapSource image, Point position, Size coordinateSpace)
     {
         CaptureWindow window = captureWindow ?? throw new InvalidOperationException("No capture window is associated with this image.");

@@ -140,7 +140,6 @@
                         Background="#191A1C" BorderBrush="#383B48" BorderThickness="1" CornerRadius="5">
                     <Grid>
                         <Image x:Name="CapturePreview" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
-                               MouseLeftButtonDown="PingPreview"
                                AutomationProperties.Name="Latest capture preview" />
                         <TextBlock x:Name="Status" Text="Stopped" Foreground="#F4F5FA" FontWeight="SemiBold" IsHitTestVisible="False"
                                    Background="#191A1C" Padding="6,5"

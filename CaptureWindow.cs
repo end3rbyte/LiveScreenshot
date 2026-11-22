@@ -51,7 +51,7 @@ internal sealed partial record CaptureWindow(nint Handle, uint ProcessId, string
         }
     }
 
-    // Returns the screen pixel under the preview click when the frame still matches.
+    // Maps a captured pixel to the desktop when the frame still matches.
     internal Point GetScreenPoint(BitmapSource image, Point previewPoint, Size previewSize)
     {
         if (previewPoint.X < 0 || previewPoint.Y < 0 ||
